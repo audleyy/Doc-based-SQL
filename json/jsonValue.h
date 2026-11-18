@@ -37,6 +37,8 @@ public:
 	JsonValue(const char* value);
 	JsonValue(int value);
 	JsonValue(bool value);
+	JsonValue(const JsonValue* other);
+	JsonValue& operator=(const JsonValue& other);
 
 	JsonType getType() const;
 	int asInt() const;
