@@ -201,3 +201,108 @@ JsonValue JsonParser::parseNumber() {
 	}
 	return JsonValue(stoi(number));
 }
+
+JsonValue JsonParser::parseArray() {
+	if (pos >= text.length() || text[pos] != '[') {
+		throw runtime_error("Expected '['");
+	}
+
+	pos++;
+
+	JsonValue result(JsonType::Array);
+
+	skipSpaces();
+
+	if (pos < text.length() && text[pos] == ']') {
+		pos++;
+		return result;
+	}
+
+	while (true) {
+		JsonValue value = parseValue();
+		result.asArray().add(value);
+
+		skipSpaces();
+
+		if (pos >= text.length()) {
+			throw runtime_error("Unterminated array");
+		}
+
+		if (text[pos] == ']') {
+			pos++;
+			return result;
+		}
+
+		if (text[pos] != ',') {
+			throw runtime_error("Expected ',' or ']'");
+		}
+
+		pos++;
+	}
+}
+
+JsonValue JsonParser::parseObject() {
+	if (pos >= text.length() || text[pos] != '{') {
+		throw runtime_error("Expected '{'");
+	}
+
+	pos++;
+
+	JsonValue result(JsonType::Object);
+
+	skipSpaces();
+
+	if (pos < text.length() && text[pos] == '}') {
+		pos++;
+		return result;
+	}
+
+	while (true) {
+		skipSpaces();
+
+		if (pos >= text.length() || text[pos] != '"') {
+			throw runtime_error("Expected object key");
+		}
+
+		string key = parseString();
+
+		skipSpaces();
+
+		if (pos >= text.length() || text[pos] != ':') {
+			throw runtime_error("Expected ':'");
+		}
+
+		pos++;
+
+		JsonValue value = parseValue();
+
+		if (result.asObject().find(key) != nullptr) {
+			throw runtime_error("Duplicate object key");
+		}
+
+		result.asObject().add(key, value);
+
+		skipSpaces();
+
+		if (pos >= text.length()) {
+			throw runtime_error("Unterminated object");
+		}
+
+		if (text[pos] == '}') {
+			pos++;
+			return result;
+		}
+
+		if (text[pos] != ',') {
+			throw runtime_error("Expected ',' or '}'");
+		}
+
+		pos++;
+
+		skipSpaces();
+
+		if (pos >= text.length() || text[pos] != '"') {
+			throw runtime_error("Expected key after comma");
+		}
+	}
+}
