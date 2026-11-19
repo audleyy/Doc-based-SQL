@@ -1,9 +1,9 @@
 #ifndef JSONVALUE_H
 #define JSONVALUE_H
 
-#include<iostream>
+#include <iostream>
 #include "../includes/array.h"
-#include<string>
+#include <string>
 
 using namespace std;
 
@@ -14,6 +14,7 @@ enum class JsonType {
 	Null,
 	String,
 	Integer,
+	Double,
 	Boolean,
 	Array,
 	Object
@@ -25,6 +26,7 @@ private:
 
 	string stringValue;
 	int intValue = 0;
+	double doubleValue = 0.0;
 	bool boolValue = false;
 
 	JsonArray* arrayValue = nullptr;
@@ -36,12 +38,14 @@ public:
 	JsonValue(const string& value);
 	JsonValue(const char* value);
 	JsonValue(int value);
+	JsonValue(double value);
 	JsonValue(bool value);
-	JsonValue(const JsonValue* other);
+	JsonValue(const JsonValue& other);
 	JsonValue& operator=(const JsonValue& other);
 
 	JsonType getType() const;
 	int asInt() const;
+	double asDouble() const;
 	const string& asString() const;
 	bool asBool() const;
 	JsonArray& asArray();

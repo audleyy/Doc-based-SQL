@@ -17,6 +17,10 @@ JsonValue::JsonValue(JsonType type) {
 JsonValue::JsonValue(int value) 
 	: type(JsonType::Integer), intValue(value) {}
 
+JsonValue::JsonValue(double value)
+	: type(JsonType::Double),
+		doubleValue(value) {}
+
 JsonValue::JsonValue(const string& value) 
 	: type(JsonType::String), 
 		stringValue(value) {}
@@ -55,22 +59,15 @@ JsonValue& JsonValue::operator=(const JsonValue& other) {
 	JsonArray* newArray = nullptr;
 	JsonObject* newObject = nullptr;
 
-	try {
-		if (other.arrayValue != nullptr) {
-			newArray = new JsonArray(*other.arrayValue);
-		}
-
-		if (other.objectValue != nullptr) {
-			newObject = new JsonObject(*other.objectValue);
-		}
-
-		stringValue = other.stringValue;
+	if (other.arrayValue != nullptr) {
+		newArray = new JsonArray(*other.arrayValue);
 	}
-	catch (...) {
-		delete newArray;
-		delete newObject;
-		throw;
+
+	if (other.objectValue != nullptr) {
+		newObject = new JsonObject(*other.objectValue);
 	}
+
+	stringValue = other.stringValue;
 
 	delete arrayValue;
 	delete objectValue;
@@ -87,35 +84,42 @@ JsonValue& JsonValue::operator=(const JsonValue& other) {
 
 int JsonValue::asInt() const {
 	if (type != JsonType::Integer) {
-		throw runtime_error("");
+		throw runtime_error("Value is not int");
 	}
 	return intValue;
 }
 
+double JsonValue::asDouble() const {
+	if (type != JsonType::Double) {
+		throw runtime_error("Value is not a double");
+	}
+	return doubleValue;
+}
+
 const string& JsonValue::asString() const {
 	if (type != JsonType::String) {
-		throw runtime_error("");
+		throw runtime_error("Value is not string");
 	}
 	return stringValue;
 }
 
 bool JsonValue::asBool() const {
 	if (type != JsonType::Boolean) {
-		throw runtime_error("");
+		throw runtime_error("Value is not bool");
 	}
 	return boolValue;
 }
 
 JsonArray& JsonValue::asArray(){
 	if (type != JsonType::Array) {
-		throw runtime_error("");
+		throw runtime_error("Value is not array");
 	}
 	return *arrayValue;
 }
 
 JsonObject& JsonValue::asObject() {
 	if (type != JsonType::Object) {
-		throw runtime_error("");
+		throw runtime_error("Value is not object");
 	}
 	return *objectValue;
 }
@@ -159,4 +163,17 @@ size_t JsonObject::length() const {
 JsonValue::~JsonValue() {
 	delete arrayValue;
 	delete objectValue;
+}
+
+
+int main() {
+	JsonValue document(JsonType::Object);
+	JsonValue student(JsonType::Object);
+
+	student.asObject().add("name", JsonValue("Ivan"));
+	student.asObject().add("age", JsonValue(19));
+
+	document.asObject().add("student", student);
+
+	return 0;
 }
