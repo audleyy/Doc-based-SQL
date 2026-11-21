@@ -124,11 +124,29 @@ JsonObject& JsonValue::asObject() {
 	return *objectValue;
 }
 
+const JsonArray& JsonValue::asArray() const {
+	if (type != JsonType::Array) {
+		throw runtime_error("Value is not array");
+	}
+	return *arrayValue;
+}
+
+const JsonObject& JsonValue::asObject() const {
+	if (type != JsonType::Object) {
+		throw runtime_error("Value is not object");
+	}
+	return *objectValue;
+}
+
 void JsonArray::add(const JsonValue& value) {
 	elements.pushBack(value);
 }
 
 JsonValue& JsonArray::get(size_t index) {
+	return elements.get(index);
+}
+
+const JsonValue& JsonArray::get(size_t index) const {
 	return elements.get(index);
 }
 
@@ -149,6 +167,10 @@ Field& JsonObject::get(size_t index) {
 	return fields.get(index);
 }
 
+const Field& JsonObject::get(size_t index) const {
+	return fields.get(index);
+}
+
 JsonValue* JsonObject::find(const string& key) {
 	for (size_t i = 0; i < fields.length(); ++i) {
 		if (fields.get(i).key == key) return &fields.get(i).value;
@@ -163,17 +185,4 @@ size_t JsonObject::length() const {
 JsonValue::~JsonValue() {
 	delete arrayValue;
 	delete objectValue;
-}
-
-
-int main() {
-	JsonValue document(JsonType::Object);
-	JsonValue student(JsonType::Object);
-
-	student.asObject().add("name", JsonValue("Ivan"));
-	student.asObject().add("age", JsonValue(19));
-
-	document.asObject().add("student", student);
-
-	return 0;
 }

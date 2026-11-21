@@ -106,6 +106,12 @@ public:
 		return data[index];
 	}
 
+	const T& get(size_t index) const {
+		if (index >= size) throw out_of_range("index out of range");
+
+		return data[index];
+	}
+
 	void replace(size_t index, const T& value) {
     if (index >= size) {
 			throw out_of_range("index out of range");

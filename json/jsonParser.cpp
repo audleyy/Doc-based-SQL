@@ -25,35 +25,42 @@ JsonValue JsonParser::parseValue() {
 
 	char c = text[pos];
 
-	if (c == '{') {
-		return parseObject();
-	}
+	switch (c) {
+		case '{':
+			return parseObject();
 
-	if (c == '[') {
-		return parseArray();
-	}
+		case '[':
+			return parseArray();
 
-	if (c == '"') {
-		return JsonValue(parseString());
-	}
+		case '"':
+			return JsonValue(parseString());
 
-	if (c == '-' || (c >= '0' && c <= '9')) {
-		return JsonValue(parseNumber());
-	}
+		case 't':
+			if (text.compare(pos, 4, "true") == 0) {
+				pos += 4;
+				return JsonValue(true);
+			}
+			break;
 
-	if (text.compare(pos, 4, "true") == 0) {
-		pos += 4;
-		return JsonValue(true);
-	}
+		case 'f':
+			if (text.compare(pos, 5, "false") == 0) {
+				pos += 5;
+				return JsonValue(false);
+			}
+			break;
 
-	if (text.compare(pos, 5, "false") == 0) {
-		pos += 5;
-		return JsonValue(false);
-	}
+		case 'n':
+			if (text.compare(pos, 4, "null") == 0) {
+				pos += 4;
+				return JsonValue();
+			}
+			break;
 
-	if (text.compare(pos, 4, "null") == 0) {
-		pos += 4;
-		return JsonValue();
+		default:
+			if (c == '-' || (c >= '0' && c <= '9')) {
+				return parseNumber();
+			}
+			break;
 	}
 
 	throw runtime_error("Invalid JSON value");
@@ -98,32 +105,41 @@ string JsonParser::parseString() {
 			char escaped = text[pos];
 			pos++;
 
-			if (escaped == '"') {
-				result += '"';
-			}
-			else if (escaped == '\\') {
-				result += '\\';
-			}
-			else if (escaped == '/') {
-				result += '/';
-			}
-			else if (escaped == 'n') {
-				result += '\n';
-			}
-			else if (escaped == 't') {
-				result += '\t';
-			}
-			else if (escaped == 'r') {
-				result += '\r';
-			}
-			else if (escaped == 'b') {
-				result += '\b';
-			}
-			else if (escaped == 'f') {
-				result += '\f';
-			}
-			else {
-				throw runtime_error("Unsupported escape sequence");
+			switch (escaped) {
+				case '"':
+					result += '"';
+					break;
+
+				case '\\':
+					result += '\\';
+					break;
+
+				case '/':
+					result += '/';
+					break;
+
+				case 'n':
+					result += '\n';
+					break;
+
+				case 't':
+					result += '\t';
+					break;
+
+				case 'r':
+					result += '\r';
+					break;
+
+				case 'b':
+					result += '\b';
+					break;
+
+				case 'f':
+					result += '\f';
+					break;
+
+				default:
+					throw runtime_error("Unsupported escape sequence");
 			}
 		}
 		else {
@@ -238,6 +254,12 @@ JsonValue JsonParser::parseArray() {
 		}
 
 		pos++;
+
+		skipSpaces();
+
+		if (pos >= text.length() || text[pos] == ']') {
+			throw runtime_error("Expected value after comma");
+		}
 	}
 }
 

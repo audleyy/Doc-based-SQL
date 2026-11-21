@@ -50,6 +50,8 @@ public:
 	bool asBool() const;
 	JsonArray& asArray();
 	JsonObject& asObject();
+	const JsonArray& asArray() const;
+	const JsonObject& asObject() const;
 
 	~JsonValue();
 };
@@ -66,6 +68,7 @@ private:
 public:
 	void add(const JsonValue& value);
 	JsonValue& get(size_t index);
+	const JsonValue& get(size_t index) const;
 	size_t length() const;
 };
 
@@ -76,6 +79,7 @@ private:
 public:
 	void add(const string& key, const JsonValue& value);
 	Field& get(size_t index);
+	const Field& get(size_t index) const;
 	JsonValue* find(const string& key);
 	size_t length() const;
 };
