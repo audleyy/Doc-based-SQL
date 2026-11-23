@@ -1,0 +1,17 @@
+{
+	"name": "University",
+	"tuples_limit": 1000,
+	"structure": {
+		"students": {
+			"name": "str",
+			"age": "int",
+			"address": {
+				"city": "str"
+			}
+		},
+		"teachers": {
+			"name": "str",
+			"subject": "str"
+		}
+	}
+}
