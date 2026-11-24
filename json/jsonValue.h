@@ -82,6 +82,7 @@ public:
 	const Field& get(size_t index) const;
 	JsonValue* find(const string& key);
 	size_t length() const;
+	void remove(size_t index);
 };
 
 #endif

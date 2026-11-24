@@ -89,34 +89,32 @@ JsonObject* SchemeManager::getCollection(const string& name) {
 	return &collection->asObject();
 }
 
-bool SchemeManager::validateDocument(const string& collectionName, JsonValue& document) {
-	JsonObject* structure = getCollection(collectionName);
-
-	if (structure == nullptr) return false;
-
+bool SchemeManager::validateObject(JsonObject& structure, JsonValue& document) {
 	if (document.getType() != JsonType::Object) return false;
 
 	JsonObject& object = document.asObject();
 
-	for (size_t i = 0; i < structure->length(); ++i) {
-		Field& field = structure->get(i);
-
+	for (size_t i = 0; i < structure.length(); ++i) {
+		Field& field = structure.get(i);
 		JsonValue* value = object.find(field.key);
 
 		if (value == nullptr) return false;
-		
-		string type = field.value.asString();
 
-		if (type == "str") {
+		if (field.value.getType() == JsonType::Object) {
+			if (!validateObject(field.value.asObject(), *value)) return false;
+			continue;
+		}
+
+		if (field.value.getType() != JsonType::String) return false;
+
+		const string& type = field.value.asString();
+
+		if (type == "str" || type == "time_stamp") {
 			if (value->getType() != JsonType::String) {
 				return false;
 			}
 		} else if (type == "int") {
 			if (value->getType() != JsonType::Integer) {
-					return false;
-			}
-		} else if (type == "time_stamp") {
-			if (value->getType() != JsonType::String) {
 				return false;
 			}
 		} else {
@@ -125,12 +123,20 @@ bool SchemeManager::validateDocument(const string& collectionName, JsonValue& do
 	}
 
 	for (size_t i = 0; i < object.length(); ++i) {
-		Field& field = object.get(i);
-
-		if (structure->find(field.key) == nullptr) {
+		if (structure.find(object.get(i).key) == nullptr) {
 			return false;
 		}
 	}
 
 	return true;
+}
+
+bool SchemeManager::validateDocument(const string& collectionName, JsonValue& document) {
+	JsonObject* structure = getCollection(collectionName);
+
+	if (structure == nullptr) {
+		return false;
+	}
+
+	return validateObject(*structure, document);
 }

@@ -182,6 +182,10 @@ size_t JsonObject::length() const {
 	return fields.length();
 }
 
+void JsonObject::remove(size_t index) {
+	fields.remove(index);
+}
+
 JsonValue::~JsonValue() {
 	delete arrayValue;
 	delete objectValue;

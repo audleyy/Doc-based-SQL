@@ -7,16 +7,77 @@ bool CollectionStorage::openCollection(const string& collectionName) {
 	if (schemeManager.getCollection(collectionName) == nullptr) {
 		return false;
 	}
-
-	file.close();
-
+	
 	collectionPath = "database/" + schemeManager.getName() + "/" + collectionName;
-	fileNumber = 1;
 
-	started = false;
-	firstRecording = true;
-	fileFinished = false;
-	collectionWasReaded = true;
+	return true;
+}
+
+string CollectionStorage::getFilePath(int fileNumber) {
+	return collectionPath + "/" + to_string(fileNumber) + ".json";
+}
+
+bool CollectionStorage::fileExists(int fileNumber) {
+	return filesystem::exists(getFilePath(fileNumber));
+}
+
+bool CollectionStorage::readFile(int fileNumber, JsonValue& result) {
+	ifstream file(getFilePath(fileNumber));
+
+	if (!file.is_open()) return false;
+
+	string content;
+	string line;
+
+	while (getline(file, line)) {
+		content += line + '\n';
+	}
+
+	if (file.bad()) return false;
+
+	if (content.find_first_not_of(" \t\n\r") == string::npos) {
+		content = "{}";
+	}
+
+	try {
+		JsonParser parser(content);
+		result = parser.parse();
+
+		return result.getType() == JsonType::Object;
+		
+	} catch (const exception&) {
+		return false;
+	}
+}
+
+bool CollectionStorage::writeFile(int fileNumber, const JsonValue& data) {
+	if (data.getType() != JsonType::Object) return false;
+
+	string filename = getFilePath(fileNumber);
+	string tempFilename = filename + ".tmp";
+
+	ofstream temp(tempFilename, ios::trunc);
+
+	if (!temp.is_open()) return false;
+
+	JsonSerializer serializer;
+
+	temp << serializer.serialize(data);
+
+	temp.close();
+
+	if (!temp) {
+		filesystem::remove(tempFilename);
+		return false;
+	}
+
+	error_code error;
+	filesystem::rename(tempFilename, filename, error);
+
+	if (error) {
+		filesystem::remove(tempFilename);
+		return false;
+	}
 
 	return true;
 }
@@ -57,156 +118,70 @@ bool CollectionStorage::initialize() {
 	}
 }
 
-void CollectionStorage::skipSpaces(ifstream& file) {
-	while (true) {
-		int c = file.peek();
+bool CollectionStorage::insertDocuments(const string& collectionName, JsonArray& documents) {
+	if (!openCollection(collectionName)) return false;
 
-		if (c == ' ' || c == '\n' ||
-			c == '\t' || c == '\r') {
-			file.get();
-		}
-		else {
-			break;
+	int limit = schemeManager.getTuplesLimit();
+
+	if (limit <= 0 || documents.length() == 0) return false;
+
+	int maxId = 0;
+	int lastFile = 0;
+	size_t recordsInLast = 0;
+
+	for (int i = 1; fileExists(i); i++) {
+		JsonValue data;
+
+		if (!readFile(i, data)) return false;
+
+		JsonObject& object = data.asObject();
+
+		lastFile = i;
+		recordsInLast = object.length();
+
+		for (size_t j = 0; j < object.length(); j++) {
+			int id = stoi(object.get(j).key);
+
+			if (id > maxId) maxId = id;
 		}
 	}
+
+	if (lastFile == 0) return false;
+
+	int fileNumber = lastFile;
+	size_t maxRecords = limit;
+
+	if (recordsInLast >= maxRecords) {
+		fileNumber++;
+	}
+
+	size_t index = 0;
+
+	while (index < documents.length()) {
+		JsonValue data;
+
+		if (fileExists(fileNumber)) {
+			if (!readFile(fileNumber, data)) return false;
+		} else {
+			string emptyObject = "{}";
+			JsonParser parser(emptyObject);
+			data = parser.parse();
+		}
+
+		JsonObject& object = data.asObject();
+
+		while (index < documents.length() && object.length() < maxRecords) {
+			maxId++;
+
+			object.add(to_string(maxId), documents.get(index));
+
+			index++;
+		}
+
+		if (!writeFile(fileNumber, data)) return false;
+
+		fileNumber++;
+	}
+
+	return true;
 }
-
-int CollectionStorage::nextDocument(string& id, JsonValue& document) {
-	if (!collectionWasReaded) {
-		return -1;
-	}
-
-	while (true) {
-		if (fileFinished) {
-			file.close();
-			fileNumber++;
-			started = false;
-			firstRecording = true;
-			fileFinished = false;
-		}
-
-		if (!file.is_open()) {
-			string filename = collectionPath + "/" +
-												to_string(fileNumber) + ".json";
-
-			if (!filesystem::exists(filename)) {
-				if (fileNumber == 1) return -1;
-				return 0;
-			}
-
-			file.open(filename);
-
-			if (!file.is_open()) return -1;
-		}
-
-		if (!started) {
-			skipSpaces(file);
-
-			if (file.peek() == EOF) {
-				fileFinished = true;
-				continue;
-			}
-
-			char c;
-			file.get(c);
-
-			if (c != '{') return -1;
-
-			started = true;
-		}
-
-		skipSpaces(file);
-
-		if (file.peek() == '}') {
-			if (!firstRecording) return -1;
-
-			file.get();
-			skipSpaces(file);
-
-			if (file.peek() != EOF) return -1;
-
-			fileFinished = true;
-			continue;
-		}
-
-		string entry;
-		int depth = 0;
-		bool inString = false;
-		bool escaped = false;
-		char separator = 0;
-		char c;
-
-		while (file.get(c)) {
-			if (inString) {
-				if (escaped) {
-					escaped = false;
-				} else if (c == '\\') {
-					escaped = true;
-				} else if (c == '"') {
-					inString = false;
-				}
-			} else {
-				if (c == '"') {
-					inString = true;
-				} else if (c == '{' || c == '[') {
-					depth++;
-				} else if (c == '}' || c == ']') {
-					if (c == '}' && depth == 0) {
-						separator = '}';
-						break;
-					}
-
-					if (depth == 0) return -1;
-
-					depth--;
-				} else if (c == ',' && depth == 0) {
-					separator = ',';
-					break;
-				}
-			}
-
-			entry += c;
-		}
-
-		if (separator == 0) {
-			return -1;
-		}
-
-		try {
-			JsonParser parser("{" + entry + "}");
-			JsonValue result = parser.parse();
-
-			JsonObject& object = result.asObject();
-
-			if (object.length() != 1) return -1;
-
-			Field& field = object.get(0);
-
-			if (field.value.getType() != JsonType::Object) return -1;
-
-
-			id = field.key;
-			document = field.value;
-		} catch (const exception&) {
-			return -1;
-		}
-
-		firstRecording = false;
-
-		if (separator == '}') {
-			skipSpaces(file);
-
-			if (file.peek() != EOF) {
-				return -1;
-			}
-
-			fileFinished = true;
-		}
-
-		return 1;
-	}
-}
-
-// bool CollectionStorage::insertDocument(const string& collectionName, const JsonValue& document) {
-
-// }

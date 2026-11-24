@@ -13,27 +13,19 @@ using namespace std;
 class CollectionStorage {
 private:
 	SchemeManager& schemeManager;
-
-	ifstream file;
 	string collectionPath;
-	int fileNumber = 1;
-	bool started = false;
-	bool firstRecording = true;
-	bool fileFinished = false;
-	bool collectionWasReaded = false;
 
-	void skipSpaces(ifstream& file);
+	string getFilePath(int fileNumber);
 
 public:
 	CollectionStorage(SchemeManager& manager);
 
-	bool openCollection(const string& collectionName);
-	int nextDocument(string& id, JsonValue& document);
-	
 	bool initialize();
-
-	bool insertDocument(const string& collectionName, const JsonValue& document);
-
+	bool openCollection(const string& collectionName);
+	bool fileExists(int fileNumber);
+	bool readFile(int fileNumber, JsonValue& result);
+	bool writeFile(int fileNumber, const JsonValue& data);	
+	bool insertDocuments(const string& collectionName, JsonArray& documents);
 };
 
 #endif

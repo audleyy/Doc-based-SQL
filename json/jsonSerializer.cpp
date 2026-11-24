@@ -58,7 +58,7 @@ string JsonSerializer::serializeObject(const JsonObject& object) {
 		result += serialize(field.value);
 	}
 
-	result += "]";
+	result += "}";
 
 	return result;
 }

@@ -22,6 +22,7 @@ public:
 	JsonObject* getCollections();
 	JsonObject* getCollection(const string& name);
 
+	bool validateObject(JsonObject& structure, JsonValue& document);
 	bool validateDocument(const string& collectionName, JsonValue& document);
 };
 
