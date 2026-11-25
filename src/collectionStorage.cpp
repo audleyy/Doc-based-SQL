@@ -1,4 +1,5 @@
 #include "collectionStorage.h"
+#include <climits>
 
 CollectionStorage::CollectionStorage(SchemeManager& manager)
     : schemeManager(manager) {}
@@ -7,7 +8,7 @@ bool CollectionStorage::openCollection(const string& collectionName) {
 	if (schemeManager.getCollection(collectionName) == nullptr) {
 		return false;
 	}
-	
+
 	collectionPath = "database/" + schemeManager.getName() + "/" + collectionName;
 
 	return true;
@@ -44,7 +45,7 @@ bool CollectionStorage::readFile(int fileNumber, JsonValue& result) {
 		result = parser.parse();
 
 		return result.getType() == JsonType::Object;
-		
+
 	} catch (const exception&) {
 		return false;
 	}
@@ -89,7 +90,7 @@ bool CollectionStorage::initialize() {
 		filesystem::create_directories(schemeName);
 
 		JsonObject* collections = schemeManager.getCollections();
-		
+
 		if (collections == nullptr) return false;
 
 		for (size_t i = 0; i < collections->length(); i++) {
@@ -119,69 +120,73 @@ bool CollectionStorage::initialize() {
 }
 
 bool CollectionStorage::insertDocuments(const string& collectionName, JsonArray& documents) {
-	if (!openCollection(collectionName)) return false;
+  if (!openCollection(collectionName)) return false;
 
-	int limit = schemeManager.getTuplesLimit();
+  int limit = schemeManager.getTuplesLimit();
 
-	if (limit <= 0 || documents.length() == 0) return false;
+  if (limit <= 0 || documents.length() == 0) return false;
 
-	int maxId = 0;
-	int lastFile = 0;
-	size_t recordsInLast = 0;
+  int maxId = 0;
+  int lastFile = 0;
+  size_t recordsInLast = 0;
 
-	for (int i = 1; fileExists(i); i++) {
-		JsonValue data;
+  for (int i = 1; fileExists(i); i++) {
+    JsonValue data;
 
-		if (!readFile(i, data)) return false;
+    if (!readFile(i, data)) return false;
 
-		JsonObject& object = data.asObject();
+    JsonObject& object = data.asObject();
 
-		lastFile = i;
-		recordsInLast = object.length();
+    lastFile = i;
+    recordsInLast = object.length();
 
-		for (size_t j = 0; j < object.length(); j++) {
-			int id = stoi(object.get(j).key);
+    for (size_t j = 0; j < object.length(); j++) {
+      int id = stoi(object.get(j).key);
 
-			if (id > maxId) maxId = id;
-		}
-	}
+      if (id > maxId) maxId = id;
+    }
+  }
 
-	if (lastFile == 0) return false;
+  if (lastFile == 0) return false;
 
-	int fileNumber = lastFile;
-	size_t maxRecords = limit;
+  size_t availableIds = INT_MAX - maxId;
 
-	if (recordsInLast >= maxRecords) {
-		fileNumber++;
-	}
+  if (documents.length() > availableIds) return false;
 
-	size_t index = 0;
+  int fileNumber = lastFile;
+  size_t maxRecords = limit;
 
-	while (index < documents.length()) {
-		JsonValue data;
+  if (recordsInLast >= maxRecords) {
+    fileNumber++;
+  }
 
-		if (fileExists(fileNumber)) {
-			if (!readFile(fileNumber, data)) return false;
-		} else {
-			string emptyObject = "{}";
-			JsonParser parser(emptyObject);
-			data = parser.parse();
-		}
+  size_t index = 0;
 
-		JsonObject& object = data.asObject();
+  while (index < documents.length()) {
+    JsonValue data;
 
-		while (index < documents.length() && object.length() < maxRecords) {
-			maxId++;
+    if (fileExists(fileNumber)) {
+      if (!readFile(fileNumber, data)) return false;
+    } else {
+      string emptyObject = "{}";
+      JsonParser parser(emptyObject);
+      data = parser.parse();
+    }
 
-			object.add(to_string(maxId), documents.get(index));
+    JsonObject& object = data.asObject();
 
-			index++;
-		}
+    while (index < documents.length() && object.length() < maxRecords) {
+      maxId++;
 
-		if (!writeFile(fileNumber, data)) return false;
+      object.add(to_string(maxId), documents.get(index));
 
-		fileNumber++;
-	}
+      index++;
+    }
 
-	return true;
+    if (!writeFile(fileNumber, data)) return false;
+
+    fileNumber++;
+  }
+
+  return true;
 }

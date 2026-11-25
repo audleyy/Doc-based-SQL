@@ -1,30 +1,40 @@
 #include "jsonSerializer.h"
+#include <sstream>
 
 string JsonSerializer::serialize(const JsonValue& value) {
-	switch(value.getType()) {
-		case JsonType::Null:
-			return "null";
+  switch(value.getType()) {
+    case JsonType::Null:
+      return "null";
 
-		case JsonType::String:
-			return serializeString(value.asString());
-		
-		case JsonType::Integer:
-			return to_string(value.asInt());
+    case JsonType::String:
+      return serializeString(value.asString());
 
-		case JsonType::Double:
-			return value.asString();
+    case JsonType::Integer:
+      return to_string(value.asInt());
 
-		case JsonType::Boolean:
-			return value.asBool() ? "true" : "false";
+    case JsonType::Double: {
+      stringstream stream;
+      stream.precision(17);
+      stream << value.asDouble();
 
-		case JsonType::Array:
-			return serializeArray(value.asArray());
-		
-		case JsonType::Object:
-			return serializeObject(value.asObject());
-	}
+      string number = stream.str();
 
-	throw runtime_error("Unknown type");
+      if (number.find('.') == string::npos && number.find('e') == string::npos) number += ".0";
+
+      return number;
+    }
+
+    case JsonType::Boolean:
+      return value.asBool() ? "true" : "false";
+
+    case JsonType::Array:
+      return serializeArray(value.asArray());
+
+    case JsonType::Object:
+      return serializeObject(value.asObject());
+  }
+
+  throw runtime_error("Unknown type");
 }
 
 string JsonSerializer::serializeArray(const JsonArray& array) {
@@ -64,47 +74,47 @@ string JsonSerializer::serializeObject(const JsonObject& object) {
 }
 
 string JsonSerializer::serializeString(const string& value) {
-	string result = "\"";
+  string result = "\"";
 
-	for (size_t i = 0; i < value.length(); ++i) {
-		char c = value[i];
+  for (size_t i = 0; i < value.length(); ++i) {
+    char c = value[i];
 
-		switch (c) {
-			case '"':
-				result += "\\\"";
-				break;
+    switch (c) {
+      case '"':
+        result += "\\\"";
+        break;
 
-			case '\\':
-				result += "\\\\";
-				break;
+      case '\\':
+        result += "\\\\";
+        break;
 
-			case '\n':
-				result += "\\n";
-				break;
+      case '\n':
+        result += "\\n";
+        break;
 
-			case '\t':
-				result += "\\nt";
-				break;
+      case '\t':
+        result += "\\t";
+        break;
 
-			case '\r':
-				result += "\\r";
-				break;
+      case '\r':
+        result += "\\r";
+        break;
 
-			case '\b':
-				result += "\\b";
-				break;
+      case '\b':
+        result += "\\b";
+        break;
 
-			case '\f':
-				result += "\\f";
-				break;
+      case '\f':
+        result += "\\f";
+        break;
 
-			default:
-				result += c;
-				break;
-		}
-	}
+      default:
+        result += c;
+        break;
+    }
+  }
 
-	result += "\"";
+  result += "\"";
 
-	return result;
+  return result;
 }

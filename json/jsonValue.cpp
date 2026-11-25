@@ -14,72 +14,74 @@ JsonValue::JsonValue(JsonType type) {
 	this->type = type;
 }
 
-JsonValue::JsonValue(int value) 
+JsonValue::JsonValue(int value)
 	: type(JsonType::Integer), intValue(value) {}
 
 JsonValue::JsonValue(double value)
 	: type(JsonType::Double),
 		doubleValue(value) {}
 
-JsonValue::JsonValue(const string& value) 
-	: type(JsonType::String), 
+JsonValue::JsonValue(const string& value)
+	: type(JsonType::String),
 		stringValue(value) {}
 
-JsonValue::JsonValue(const char* value) 
-	: type(JsonType::String), 
+JsonValue::JsonValue(const char* value)
+	: type(JsonType::String),
 		stringValue(value) {}
 
-JsonValue::JsonValue(bool value) 
-	: type(JsonType::Boolean), 
+JsonValue::JsonValue(bool value)
+	: type(JsonType::Boolean),
 		boolValue(value) {}
 
 JsonType JsonValue::getType() const {
 	return type;
 }
 
-JsonValue::JsonValue(const JsonValue& other) 
-	: type(other.type),
-		stringValue(other.stringValue),
-		intValue(other.intValue),
-		boolValue(other.boolValue) {
-	if (other.arrayValue != nullptr) {
-		arrayValue = new JsonArray(*other.arrayValue);
-	}
+JsonValue::JsonValue(const JsonValue& other)
+  : type(other.type),
+    stringValue(other.stringValue),
+    intValue(other.intValue),
+    doubleValue(other.doubleValue),
+    boolValue(other.boolValue) {
+  if (other.arrayValue != nullptr) {
+    arrayValue = new JsonArray(*other.arrayValue);
+  }
 
-	if (other.objectValue != nullptr) {
-		objectValue = new JsonObject(*other.objectValue);
-	}
+  if (other.objectValue != nullptr) {
+    objectValue = new JsonObject(*other.objectValue);
+  }
 }
 
 JsonValue& JsonValue::operator=(const JsonValue& other) {
-	if (this == &other) {
-		return *this;
-	}
+  if (this == &other) {
+    return *this;
+  }
 
-	JsonArray* newArray = nullptr;
-	JsonObject* newObject = nullptr;
+  JsonArray* newArray = nullptr;
+  JsonObject* newObject = nullptr;
 
-	if (other.arrayValue != nullptr) {
-		newArray = new JsonArray(*other.arrayValue);
-	}
+  if (other.arrayValue != nullptr) {
+    newArray = new JsonArray(*other.arrayValue);
+  }
 
-	if (other.objectValue != nullptr) {
-		newObject = new JsonObject(*other.objectValue);
-	}
+  if (other.objectValue != nullptr) {
+    newObject = new JsonObject(*other.objectValue);
+  }
 
-	stringValue = other.stringValue;
+  stringValue = other.stringValue;
 
-	delete arrayValue;
-	delete objectValue;
+  delete arrayValue;
+  delete objectValue;
 
-	type = other.type;
-	intValue = other.intValue;
-	boolValue = other.boolValue;
+  type = other.type;
+  intValue = other.intValue;
+  doubleValue = other.doubleValue;
+  boolValue = other.boolValue;
 
-	arrayValue = newArray;
-	objectValue = newObject;
+  arrayValue = newArray;
+  objectValue = newObject;
 
-	return *this;
+  return *this;
 }
 
 int JsonValue::asInt() const {

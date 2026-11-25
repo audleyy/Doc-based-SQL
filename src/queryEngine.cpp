@@ -1,6 +1,7 @@
 #include "queryEngine.h"
 #include "../json/jsonParser.h"
 #include "../json/jsonSerializer.h"
+#include <climits>
 
 QueryEngine::QueryEngine(CollectionStorage& storage, SchemeManager& schemeManager)
     : storage(storage), schemeManager(schemeManager) {}
@@ -32,6 +33,23 @@ bool QueryEngine::valuesEqual(const JsonValue& first, const JsonValue& second) {
 }
 
 bool QueryEngine::compareValues(const JsonValue& first, const JsonValue& second, const string& operation) {
+	if (operation == "$not") {
+		if (second.getType() != JsonType::Object) return false;
+
+		const JsonObject& conditions = second.asObject();
+
+		if (conditions.length() == 0) return false;
+
+		for (size_t i = 0; i < conditions.length(); i++) {
+			const Field& condition = conditions.get(i);
+
+			if (!compareValues(first, condition.value, condition.key)) {
+				return true;
+			}
+		}
+
+		return false;
+	}
 	if (operation == "$eq") return valuesEqual(first, second);
 	if (operation == "$ne") return !valuesEqual(first, second);
 	if (operation == "$in") {
@@ -62,157 +80,256 @@ bool QueryEngine::compareValues(const JsonValue& first, const JsonValue& second,
 	return false;
 }
 
+bool QueryEngine::matchesFilter(JsonValue& document, JsonValue& filter, const string* id) {
+  if (document.getType() != JsonType::Object || filter.getType() != JsonType::Object) {
+    return false;
+  }
 
-bool QueryEngine::matchesFilter(JsonValue& document, JsonValue& filter) {
-	if (document.getType() != JsonType::Object ||
-		filter.getType() != JsonType::Object) {
-		return false;
-	}
+  JsonObject& documentObject = document.asObject();
+  JsonObject& conditions = filter.asObject();
 
-	JsonObject& documentObject = document.asObject();
-	JsonObject& filterObject = filter.asObject();
+  for (size_t i = 0; i < conditions.length(); i++) {
+    Field& condition = conditions.get(i);
 
-	for (size_t i = 0; i < filterObject.length(); ++i) {
-		Field& operation = filterObject.get(i);
+    if (condition.key == "$and") {
+      JsonArray& array = condition.value.asArray();
 
-		if (operation.key == "$and") {
-			if (operation.value.getType() != JsonType::Array) {
-				return false;
-			}
+      for (size_t j = 0; j < array.length(); j++) {
+        if (!matchesFilter(document, array.get(j), id)) {
+          return false;
+        }
+      }
+    }
+    else if (condition.key == "$or") {
+      JsonArray& array = condition.value.asArray();
 
-			JsonArray& operators = operation.value.asArray();
+      bool found = false;
 
-			if (operators.length() == 0) return false;
+      for (size_t j = 0; j < array.length(); j++) {
+        if (matchesFilter(document, array.get(j), id)) {
+          found = true;
+          break;
+        }
+      }
 
-			for (size_t j = 0; j < operators.length(); ++j) {
-				if (!matchesFilter(document, operators.get(j))) {
-					return false;
-				}
-			}
-		}
+      if (!found) return false;
+    }
+    else if (condition.key == "$not") {
+      if (matchesFilter(document, condition.value, id)) {
+        return false;
+      }
+    }
+    else {
+      JsonValue idValue;
+      JsonValue* value;
 
-		else if (operation.key == "$or") {
-			if (operation.value.getType() != JsonType::Array) {
-				return false;
-			}
-			
-			JsonArray& operators = operation.value.asArray();
+      if (condition.key == "_id" && id != nullptr) {
+        idValue = JsonValue(*id);
+        value = &idValue;
+      }
+      else {
+        value = documentObject.find(condition.key);
+      }
 
-			if (operators.length() == 0) return false;
-			bool found = false;
+      if (value == nullptr) return false;
 
-			for (size_t j = 0; j < operators.length(); ++j) {
-				if (matchesFilter(document, operators.get(j))) {
-					found = true;
-					break;
-				}
-			}
+      if (condition.value.getType() != JsonType::Object) {
+        if (!valuesEqual(*value, condition.value)) return false;
+      }
+      else if (value->getType() == JsonType::Object) {
+        if (!matchesFilter(*value, condition.value)) return false;
+      }
+      else {
+        JsonObject& operators = condition.value.asObject();
 
-			if (!found) return false;
-		}
+        for (size_t j = 0; j < operators.length(); j++) {
+          Field& operation = operators.get(j);
 
-		else if (operation.key == "$not") {
-			if (operation.value.getType() != JsonType::Object) {
-				return false;
-			}
+          if (!compareValues(*value, operation.value, operation.key)) {
+            return false;
+          }
+        }
+      }
+    }
+  }
 
-			if (matchesFilter(document, operation.value)) {
-				return false;
-			}
-		}
-
-		else {
-			JsonValue* value = documentObject.find(operation.key);
-
-			if (value == nullptr) {
-				return false;
-			}
-
-			if (operation.value.getType() != JsonType::Object) {
-				if (!valuesEqual(*value, operation.value)) {
-					return false;
-				}
-
-				continue;
-			}
-
-			JsonObject& nested = operation.value.asObject();
-
-			if (nested.length() == 0) return false;
-
-			bool hasOperators = false;
-			bool hasFields = false;
-
-			for (size_t j = 0; j < nested.length(); ++j) {
-				const string& key = nested.get(j).key;
-
-				if (!key.empty() && key[0] == '$') {
-					hasOperators = true;
-				} else {
-					hasFields = true;
-				}
-			}
-
-			if (hasOperators && hasFields) return false;
-
-			if (hasOperators) {
-				for (size_t j = 0; j < nested.length(); ++j) {
-					Field& operation = nested.get(j);
-
-					if (!compareValues(*value, operation.value, operation.key)) {
-						return false;
-					}
-				}
-			} else {
-				if (!matchesFilter(*value, operation.value)) {
-					return false;
-				}
-			}
-		}
-	}
-
-	return true;
+  return true;
 }
 
-bool QueryEngine::find(const string& collectionName, const string& filterText, bool onlyOne) {
-	try {
-		JsonParser parser(filterText);
-		JsonValue filter = parser.parse();
+bool QueryEngine::find(const string& collectionName, const string& filterText, const string& projectionText, int limit, const string& sortKey, bool ascending) {
+  try {
+    JsonParser filterParser(filterText);
+    JsonValue filter = filterParser.parse();
 
-		if (filter.getType() != JsonType::Object) return false;
+    JsonParser projectionParser(projectionText);
+    JsonValue projectionValue = projectionParser.parse();
 
-		if (!storage.openCollection(collectionName)) return false;
+    if (!validateFilter(collectionName, filter)) return false;
 
-		JsonSerializer serializer;
+    if (projectionValue.getType() != JsonType::Array) return false;
 
-		for (int i = 1; storage.fileExists(i); ++i) {
-			JsonValue data;
+    JsonArray& projection = projectionValue.asArray();
 
-			if (!storage.readFile(i, data)) return false;
+    for (size_t i = 0; i < projection.length(); i++) {
+      if (projection.get(i).getType() != JsonType::String) {
+        return false;
+      }
+    }
 
-			JsonObject& documents = data.asObject();
+    if (limit < -1) return false;
 
-			for (size_t j = 0; j < documents.length(); ++j) {
-				Field& field = documents.get(j);
+    if (!storage.openCollection(collectionName)) return false;
 
-				if (matchesFilter(field.value, filter)) {
-					cout << "ID: " << field.key << endl;
-					cout << serializer.serialize(field.value) << endl;
+    if (!sortKey.empty()) {
+      return findSorted(collectionName, filter, projection, limit, sortKey, ascending);
+    }
 
-					if (onlyOne) return true;
-				}
-			}
-		}
+    if (limit == 0) return true;
 
-		return true;
-	}
-	catch (const exception&) {
-		return false;
-	}
+    int found = 0;
+
+    for (int i = 1; storage.fileExists(i); i++) {
+      JsonValue data;
+
+      if (!storage.readFile(i, data)) return false;
+
+      JsonObject& documents = data.asObject();
+
+      for (size_t j = 0; j < documents.length(); j++) {
+        Field& field = documents.get(j);
+
+        if (!matchesFilter(field.value, filter, &field.key)) {
+          continue;
+        }
+
+        printDocument(field, projection);
+
+        found++;
+
+        if (found == limit) return true;
+      }
+    }
+
+    if (found == 0) {
+      cout << "No documents found" << endl;
+    }
+    return true;
+  }
+  catch (const exception&) {
+    return false;
+  }
+}
+
+bool QueryEngine::sortAndPrint(const string& directory, JsonValue& filter, JsonArray& projection, int limit, const string& key, bool ascending) {
+  ExternalSort sorter;
+  size_t runCount = 0;
+
+  for (int i = 1; storage.fileExists(i); i++) {
+    JsonValue data;
+
+    if (!storage.readFile(i, data)) return false;
+
+    JsonObject& documents = data.asObject();
+
+    size_t j = 0;
+
+    while (j < documents.length()) {
+      Field& field = documents.get(j);
+
+      if (!matchesFilter(field.value, filter, &field.key)) {
+        documents.remove(j);
+      }
+      else {
+        j++;
+      }
+    }
+
+    if (documents.length() == 0) continue;
+
+    sorter.sortRun(documents, key, ascending);
+
+    runCount++;
+
+    string filename = directory + "/run" + to_string(runCount) + ".jsonl";
+
+    if (!sorter.writeRun(filename, documents)) {
+      return false;
+    }
+  }
+
+  if (runCount == 0) return true;
+
+  if (!sorter.mergeAllRuns(directory, runCount, key, ascending)) {
+    return false;
+  }
+
+  ifstream file(directory + "/run1.jsonl");
+
+  if (!file.is_open()) return false;
+
+  Field record;
+  int found = 0;
+
+  int status = sorter.readRecord(file, record);
+
+  while (status == 1) {
+    printDocument(record, projection);
+
+    if (limit > 0) {
+      found++;
+
+      if (found == limit) return true;
+    }
+
+    status = sorter.readRecord(file, record);
+  }
+
+  return status == 0;
+}
+
+bool QueryEngine::findSorted(const string& collectionName, JsonValue& filter, JsonArray& projection, int limit, const string& key, bool ascending) {
+  JsonObject* structure =
+    schemeManager.getCollection(collectionName);
+
+  if (structure == nullptr) return false;
+
+  JsonValue* field = structure->find(key);
+
+  if (field == nullptr) return false;
+
+  if (field->getType() != JsonType::String) return false;
+
+  string type = field->asString();
+
+  if (type != "int" && type != "str" && type != "time_stamp") {
+    return false;
+  }
+
+  if (limit == 0) return true;
+
+  string directory = "sort_tmp";
+  error_code error;
+
+  if (!filesystem::create_directory(directory, error)) {
+    return false;
+  }
+
+  bool result = false;
+
+  try {
+    result = sortAndPrint(directory, filter, projection, limit, key, ascending);
+  }
+  catch (const exception&) {
+    result = false;
+  }
+
+  filesystem::remove_all(directory, error);
+
+  return result && !error;
 }
 
 bool QueryEngine::findOne(const string& collectionName, const string& filterText) {
-	return find(collectionName, filterText, true);
+  return find(collectionName, filterText, "[]", 1);
 }
 
 bool QueryEngine::insertOne(const string& collectionName, const string& documentText) {
@@ -232,65 +349,70 @@ bool QueryEngine::insertOne(const string& collectionName, const string& document
 }
 
 bool QueryEngine::insertMany(const string& collectionName, const string& documentsText) {
-	try {
-		JsonParser parser(documentsText);
-		JsonValue result = parser.parse();
+  try {
+    JsonParser parser(documentsText);
+    JsonValue result = parser.parse();
 
-		if (result.getType() != JsonType::Array) return false;
+    if (result.getType() != JsonType::Array) return false;
 
-		JsonArray& documents = result.asArray();
+    JsonArray& documents = result.asArray();
 
-		if (documents.length() == 0) return false;
+    if (documents.length() == 0) return false;
 
-		for (size_t i = 0; i < documents.length(); i++) {
-			if (!schemeManager.validateDocument(
-				collectionName, documents.get(i))) {
-				return false;
-			}
-		}
+    for (size_t i = 0; i < documents.length(); i++) {
+      if (!schemeManager.validateDocument(
+        collectionName, documents.get(i))) {
+        return false;
+      }
+    }
 
-		return storage.insertDocuments(collectionName, documents);
-	} catch (const exception&) {
-		throw false;
-	}
+    return storage.insertDocuments(collectionName, documents);
+  } catch (const exception&) {
+    return false;
+  }
 }
 
 bool QueryEngine::deleteDocuments(const string& collectionName, const string& filterText, bool onlyOne) {
-	try {
-		JsonParser parser(filterText);
-		JsonValue filter = parser.parse();
+  try {
+    JsonParser parser(filterText);
+    JsonValue filter = parser.parse();
 
-		if (filter.getType() != JsonType::Object) return false;
+    if (!validateFilter(collectionName, filter)) return false;
 
-		if (!storage.openCollection(collectionName)) return false;
+    if (!storage.openCollection(collectionName)) return false;
 
-		for (int i = 1; storage.fileExists(i); i++) {
-			JsonValue data;
+    for (int i = 1; storage.fileExists(i); i++) {
+      JsonValue data;
 
-			if (!storage.readFile(i, data)) return false;
+      if (!storage.readFile(i, data)) return false;
 
-			JsonObject& documents = data.asObject();
+      JsonObject& documents = data.asObject();
+      size_t originalLength = documents.length();
+      size_t j = 0;
 
-			size_t j = 0;
+      while (j < documents.length()) {
+        Field& field = documents.get(j);
 
-			while (j < documents.length()) {
-				if (matchesFilter(documents.get(j).value, filter)) {
-					documents.remove(j);
+        if (matchesFilter(field.value, filter, &field.key)) {
+          documents.remove(j);
 
-					if (onlyOne) {
-						return storage.writeFile(i, data);
-					}
-				} else {
-					++j;
-				}
-			}
-		}
+          if (onlyOne) return storage.writeFile(i, data);
+        }
+        else {
+          j++;
+        }
+      }
 
-		return true;
+      if (documents.length() != originalLength) {
+        if (!storage.writeFile(i, data)) return false;
+      }
+    }
 
-	} catch (const exception&) {
-		return false;
-	}
+    return true;
+  }
+  catch (const exception&) {
+    return false;
+  }
 }
 
 bool QueryEngine::deleteOne(const string& collectionName, const string& filterText) {
@@ -302,106 +424,99 @@ bool QueryEngine::deleteMany(const string& collectionName, const string& filterT
 }
 
 bool QueryEngine::applyUpdate(JsonValue& document, JsonValue& update) {
-	if (document.getType() != JsonType::Object || update.getType() != JsonType::Object) return false;
+  if (document.getType() != JsonType::Object) return false;
 
-	JsonObject& object = document.asObject();
-	JsonObject& operations = update.asObject();
+  JsonObject& object = document.asObject();
+  JsonObject& operations = update.asObject();
 
-	for (size_t i = 0; i < operations.length(); i++) {
-		Field& operation = operations.get(i);
+  for (size_t i = 0; i < operations.length(); i++) {
+    Field& operation = operations.get(i);
 
-		if (operation.value.getType() != JsonType::Object) return false;
-		
-		JsonObject& fields = operation.value.asObject();
+    JsonObject& fields = operation.value.asObject();
 
-		for (size_t j = 0; j < fields.length(); j++) {
-			Field& field = fields.get(j);
+    for (size_t j = 0; j < fields.length(); j++) {
+      Field& field = fields.get(j);
 
-			JsonValue* value = object.find(field.key);
+      JsonValue* value = object.find(field.key);
 
-			if (value == nullptr) return false;
+      if (value == nullptr) return false;
 
-			if (operation.key == "$set") {
-				*value = field.value;
-			} 
+      if (operation.key == "$set") {
+        *value = field.value;
+      } else if (operation.key == "$inc") {
+        if (value->getType() != JsonType::Integer) return false;
 
-			else if (operation.key == "$inc") {
-				if (value->getType() != JsonType::Integer ||
-					field.value.getType() != JsonType::Integer) {
-					return false;
-				}
+        long long sum = value->asInt();
+        sum += field.value.asInt();
 
-				int sum = value->asInt();
-				sum += field.value.asInt();
+        if (sum > INT_MAX || sum < INT_MIN) return false;
 
-				*value = JsonValue(sum);
-			}
-			
-			else if (operation.key == "$push") {
-				if (value->getType() != JsonType::Array) {
-					return false;
-				}
+        int number = sum;
 
-				value->asArray().add(field.value);
-			} 
-			
-			else {
-				return false;
-			}
+        *value = JsonValue(number);
+      } else if (operation.key == "$push") {
+        if (value->getType() != JsonType::Array) {
+          return false;
+        }
+
+        value->asArray().add(field.value);
+      } else {
+        return false;
+      }
     }
-	}
+  }
 
-	return true;
+  return true;
 }
 
 bool QueryEngine::updateDocuments(const string& collectionName, const string& filterText, const string& updateText, bool onlyOne) {
-	try {
-		JsonParser filterParser(filterText);
-		JsonValue filter = filterParser.parse();
+  try {
+    JsonParser filterParser(filterText);
+    JsonValue filter = filterParser.parse();
 
-		JsonParser updateParser(updateText);
-		JsonValue update = updateParser.parse();
+    JsonParser updateParser(updateText);
+    JsonValue update = updateParser.parse();
 
-		if (filter.getType() != JsonType::Object ||
-			update.getType() != JsonType::Object) {
-			return false;
-		}
+    if (!validateFilter(collectionName, filter)) return false;
 
-		if (!storage.openCollection(collectionName)) return false;
+    if (!validateUpdate(collectionName, update)) return false;
 
-		for (int i = 1; storage.fileExists(i); i++) {
-			JsonValue data;
+    if (!storage.openCollection(collectionName)) return false;
 
-			if (!storage.readFile(i, data)) return false;
+    for (int i = 1; storage.fileExists(i); i++) {
+      JsonValue data;
 
-			JsonObject& documents = data.asObject();
+      if (!storage.readFile(i, data)) return false;
 
-			int updated = 0;
+      JsonObject& documents = data.asObject();
 
-			for (size_t j = 0; j < documents.length(); j++) {
-				JsonValue& document = documents.get(j).value;
+      int updated = 0;
 
-				if (!matchesFilter(document, filter)) continue;
+      for (size_t j = 0; j < documents.length(); j++) {
+        Field& field = documents.get(j);
+        JsonValue& document = field.value;
 
-				if (!applyUpdate(document, update)) return false;
+        if (!matchesFilter(document, filter, &field.key)) continue;
 
-				if (!schemeManager.validateDocument(collectionName, document)) return false;
+        if (!applyUpdate(document, update)) return false;
 
-				updated++;
+        if (!schemeManager.validateDocument(collectionName, document)) return false;
 
-				if (onlyOne) return storage.writeFile(i, data);
-			}
+        updated++;
 
-			if (updated > 0) {
-				if (!storage.writeFile(i, data)) return false;
-			}
-		}
+        if (onlyOne) return storage.writeFile(i, data);
+      }
 
-		return true;
-	
-	} catch (const exception&) {
-		return false;
-	}
+      if (updated > 0) {
+        if (!storage.writeFile(i, data)) return false;
+      }
+    }
+
+    return true;
+
+  } catch (const exception&) {
+    return false;
+  }
 }
 
 bool QueryEngine::updateOne(const string& collectionName, const string& filterText, const string& updateText) {
@@ -410,4 +525,194 @@ bool QueryEngine::updateOne(const string& collectionName, const string& filterTe
 
 bool QueryEngine::updateMany(const string& collectionName, const string& filterText, const string& updateText) {
 	return updateDocuments(collectionName, filterText, updateText, false);
+}
+
+JsonValue QueryEngine::applyProjection(JsonValue& document, JsonArray& projection) {
+	string emptyObject = "{}";
+
+	JsonParser parser(emptyObject);
+	JsonValue result = parser.parse();
+
+	JsonObject& source = document.asObject();
+	JsonObject& target = result.asObject();
+
+	for (size_t i = 0; i < projection.length(); ++i) {
+		string key = projection.get(i).asString();
+
+		JsonValue* value = source.find(key);
+
+		if (value != nullptr && target.find(key) == nullptr) {
+			target.add(key, *value);
+		}
+	}
+
+	return result;
+}
+
+void QueryEngine::printDocument(Field& field, JsonArray& projection) {
+	JsonSerializer serializer;
+
+	cout << "ID: " << field.key << endl;
+
+	if (projection.length() == 0) {
+		cout << serializer.serialize(field.value) << endl;
+	} else {
+		JsonValue result = applyProjection(field.value, projection);
+
+		cout << serializer.serialize(result) << endl;
+	}
+}
+
+bool QueryEngine::matchesSchemeType(const JsonValue& value, const string& type) {
+  if (type == "int") {
+    return value.getType() == JsonType::Integer;
+  }
+
+  if (type == "str" || type == "time_stamp") {
+    return value.getType() == JsonType::String;
+  }
+
+  if (type == "array") {
+    return value.getType() == JsonType::Array;
+  }
+
+  return false;
+}
+
+bool QueryEngine::validateOperators(JsonValue& value, const string& type) {
+  if (value.getType() != JsonType::Object) return false;
+
+  JsonObject& operators = value.asObject();
+  if (operators.length() == 0) return false;
+
+  for (size_t i = 0; i < operators.length(); i++) {
+    Field& operation = operators.get(i);
+
+    if (operation.key == "$not") {
+      if (!validateOperators(operation.value, type)) return false;
+    } else if (operation.key == "$in") {
+      if (operation.value.getType() != JsonType::Array) return false;
+
+      JsonArray& array = operation.value.asArray();
+      for (size_t j = 0; j < array.length(); j++) {
+        if (!matchesSchemeType(array.get(j), type)) return false;
+      }
+    } else {
+      if (operation.key == "$gt" || operation.key == "$lt" ||
+          operation.key == "$gte" || operation.key == "$lte") {
+        if (type != "int") return false;
+      } else if (operation.key != "$eq" && operation.key != "$ne") {
+        return false;
+      }
+
+      if (!matchesSchemeType(operation.value, type)) return false;
+    }
+  }
+
+  return true;
+}
+
+bool QueryEngine::validateFilter(JsonObject& structure, JsonValue& filter, bool allowId) {
+  if (filter.getType() != JsonType::Object) return false;
+
+  JsonObject& conditions = filter.asObject();
+
+  for (size_t i = 0; i < conditions.length(); i++) {
+    Field& condition = conditions.get(i);
+
+    if (condition.key == "$and" || condition.key == "$or") {
+      if (condition.value.getType() != JsonType::Array) return false;
+
+      JsonArray& array = condition.value.asArray();
+      if (array.length() == 0) return false;
+
+      for (size_t j = 0; j < array.length(); j++) {
+        if (!validateFilter(structure, array.get(j), allowId)) return false;
+      }
+      continue;
+    }
+
+    if (condition.key == "$not") {
+      if (!validateFilter(structure, condition.value, allowId)) return false;
+      continue;
+    }
+
+    JsonValue idType("str");
+    JsonValue* field = structure.find(condition.key);
+
+    if (condition.key == "_id" && allowId) field = &idType;
+    if (field == nullptr) return false;
+
+    if (field->getType() == JsonType::Object) {
+      if (condition.value.getType() != JsonType::Object) return false;
+      if (condition.value.asObject().length() == 0) return false;
+      if (!validateFilter(field->asObject(), condition.value, false)) return false;
+      continue;
+    }
+
+    if (field->getType() != JsonType::String) return false;
+    string type = field->asString();
+    if (type == "array") return false;
+
+    if (condition.value.getType() == JsonType::Object) {
+      if (!validateOperators(condition.value, type)) return false;
+    } else {
+      if (!matchesSchemeType(condition.value, type)) return false;
+    }
+  }
+
+  return true;
+}
+
+bool QueryEngine::validateFilter(const string& collectionName, JsonValue& filter) {
+  JsonObject* structure = schemeManager.getCollection(collectionName);
+
+  if (structure == nullptr) return false;
+
+  return validateFilter(*structure, filter);
+}
+
+bool QueryEngine::validateUpdate(const string& collectionName, JsonValue& update) {
+  if (update.getType() != JsonType::Object) return false;
+
+  JsonObject* structure = schemeManager.getCollection(collectionName);
+  if (structure == nullptr) return false;
+
+  JsonObject& operations = update.asObject();
+  if (operations.length() == 0) return false;
+
+  for (size_t i = 0; i < operations.length(); i++) {
+    Field& operation = operations.get(i);
+
+    if (operation.key != "$set" && operation.key != "$inc" && operation.key != "$push") return false;
+    if (operation.value.getType() != JsonType::Object) return false;
+
+    JsonObject& fields = operation.value.asObject();
+    if (fields.length() == 0) return false;
+
+    for (size_t j = 0; j < fields.length(); j++) {
+      Field& field = fields.get(j);
+      if (field.key == "_id") return false;
+
+      JsonValue* schemeField = structure->find(field.key);
+      if (schemeField == nullptr) return false;
+
+      if (operation.key == "$set" && schemeField->getType() == JsonType::Object) {
+        if (!schemeManager.validateObject(schemeField->asObject(), field.value)) return false;
+        continue;
+      }
+
+      if (schemeField->getType() != JsonType::String) return false;
+      string type = schemeField->asString();
+
+      if (operation.key == "$push") {
+        if (type != "array") return false;
+      } else {
+        if (operation.key == "$inc" && type != "int") return false;
+        if (!matchesSchemeType(field.value, type)) return false;
+      }
+    }
+  }
+
+  return true;
 }

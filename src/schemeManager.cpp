@@ -1,50 +1,54 @@
 #include "schemeManager.h"
 
 bool SchemeManager::load(const string& filename) {
-	ifstream file(filename);
+  ifstream file(filename);
 
-	if (!file.is_open()) return false;
+  if (!file.is_open()) return false;
 
-	stringstream buffer;
-	buffer << file.rdbuf();
+  stringstream buffer;
+  buffer << file.rdbuf();
 
-	if (file.bad()) return false;
+  if (file.bad()) return false;
 
-	string text = buffer.str();
+  string text = buffer.str();
 
-	try {
-		JsonParser parser(text);
-		JsonValue result = parser.parse();
+  try {
+    JsonParser parser(text);
+    JsonValue result = parser.parse();
 
-		if (result.getType() != JsonType::Object) return false;
+    if (result.getType() != JsonType::Object) return false;
 
-		JsonObject& root = result.asObject();
+    JsonObject& root = result.asObject();
 
-		JsonValue* name = root.find("name");
-		JsonValue* limit = root.find("tuples_limit");
-		JsonValue* structure = root.find("structure");
+    JsonValue* name = root.find("name");
+    JsonValue* limit = root.find("tuples_limit");
+    JsonValue* structure = root.find("structure");
 
-		if (name == nullptr || limit == nullptr || structure == nullptr) return false;
+    if (name == nullptr || limit == nullptr || structure == nullptr) return false;
 
-		if (name->getType() != JsonType::String || limit->getType() != JsonType::Integer || structure->getType() != JsonType::Object) return false;
+    if (name->getType() != JsonType::String || limit->getType() != JsonType::Integer || structure->getType() != JsonType::Object) return false;
 
     if (name->asString().empty() || limit->asInt() <= 0) return false;
 
-		JsonObject& collections = structure->asObject();
+    JsonObject& collections = structure->asObject();
 
-		for (size_t i = 0; i < collections.length(); i++) {
-			if (collections.get(i).value.getType() != JsonType::Object) {
-				return false;
-			}
-		}
+    for (size_t i = 0; i < collections.length(); i++) {
+      if (collections.get(i).value.getType() != JsonType::Object) {
+        return false;
+      }
 
-		scheme = result;
+      if (collections.get(i).value.asObject().find("_id") != nullptr) {
+        return false;
+      }
+    }
 
-		return true;
+    scheme = result;
 
-	} catch (exception&) {
-		return false;
-	}
+    return true;
+
+  } catch (exception&) {
+    return false;
+  }
 }
 
 string SchemeManager::getName() {
@@ -90,45 +94,49 @@ JsonObject* SchemeManager::getCollection(const string& name) {
 }
 
 bool SchemeManager::validateObject(JsonObject& structure, JsonValue& document) {
-	if (document.getType() != JsonType::Object) return false;
+  if (document.getType() != JsonType::Object) return false;
 
-	JsonObject& object = document.asObject();
+  JsonObject& object = document.asObject();
 
-	for (size_t i = 0; i < structure.length(); ++i) {
-		Field& field = structure.get(i);
-		JsonValue* value = object.find(field.key);
+  for (size_t i = 0; i < structure.length(); ++i) {
+    Field& field = structure.get(i);
+    JsonValue* value = object.find(field.key);
 
-		if (value == nullptr) return false;
+    if (value == nullptr) return false;
 
-		if (field.value.getType() == JsonType::Object) {
-			if (!validateObject(field.value.asObject(), *value)) return false;
-			continue;
-		}
+    if (field.value.getType() == JsonType::Object) {
+      if (!validateObject(field.value.asObject(), *value)) return false;
+      continue;
+    }
 
-		if (field.value.getType() != JsonType::String) return false;
+    if (field.value.getType() != JsonType::String) return false;
 
-		const string& type = field.value.asString();
+    const string& type = field.value.asString();
 
-		if (type == "str" || type == "time_stamp") {
-			if (value->getType() != JsonType::String) {
-				return false;
-			}
-		} else if (type == "int") {
-			if (value->getType() != JsonType::Integer) {
-				return false;
-			}
-		} else {
-			return false;
-		}
-	}
+    if (type == "str" || type == "time_stamp") {
+      if (value->getType() != JsonType::String) {
+        return false;
+      }
+    } else if (type == "int") {
+      if (value->getType() != JsonType::Integer) {
+        return false;
+      }
+    } else if (type == "array") {
+      if (value->getType() != JsonType::Array) {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
 
-	for (size_t i = 0; i < object.length(); ++i) {
-		if (structure.find(object.get(i).key) == nullptr) {
-			return false;
-		}
-	}
+  for (size_t i = 0; i < object.length(); ++i) {
+    if (structure.find(object.get(i).key) == nullptr) {
+      return false;
+    }
+  }
 
-	return true;
+  return true;
 }
 
 bool SchemeManager::validateDocument(const string& collectionName, JsonValue& document) {
